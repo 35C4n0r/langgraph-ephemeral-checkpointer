@@ -1,0 +1,39 @@
+[project]
+name = "langgraph-ephemeral-checkpointer"
+version = "0.1.0"
+description = "TTL-based thread retention for LangGraph checkpointers"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "clypi",
+    "langgraph-checkpoint>=3.0.0",
+]
+
+[project.optional-dependencies]
+sqlite = ["langgraph-checkpoint-sqlite>=3.1.0"]
+postgres = ["langgraph-checkpoint-postgres>=3.1.0"]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "langgraph>=1.2.0",
+    "langgraph-checkpoint-sqlite>=3.1.0",
+    "aiosqlite>=0.20",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.22.1",
+    "langgraph>=1.2.0",
+    "langgraph-checkpoint-sqlite>=3.1.0",
+    "langgraph-checkpoint-postgres>=3.1.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+]

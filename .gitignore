@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+*.egg-info/
+.DS_Store
+.idea/
+benchmarks/
+docker-compose.yml
+findings.md
+FORIEGN_BM.md
