@@ -15,7 +15,23 @@ def detect(checkpointer: BaseCheckpointSaver):
     except ImportError:
         pass
 
+    try:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        if isinstance(checkpointer, SqliteSaver):
+            from .sqlite import SqliteStrategy
+            return SqliteStrategy(checkpointer)
+    except ImportError:
+        pass
+
+    try:
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        if isinstance(checkpointer, AsyncSqliteSaver):
+            from .sqlite import AsyncSqliteStrategy
+            return AsyncSqliteStrategy(checkpointer)
+    except ImportError:
+        pass
+
     raise TypeError(
         f"No strategy available for {type(checkpointer).__name__}. "
-        "Supported backends: InMemorySaver."
+        "Supported backends: InMemorySaver, SqliteSaver, AsyncSqliteSaver."
     )
