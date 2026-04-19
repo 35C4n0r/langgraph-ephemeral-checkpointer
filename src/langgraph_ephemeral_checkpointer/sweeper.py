@@ -39,6 +39,10 @@ class Sweeper:
         """Run one sweep cycle synchronously."""
         return self._run_sweep()
 
+    async def asweep(self) -> SweepResult:
+        """Async variant of sweep(). Prefer this when using an async checkpointer."""
+        return await self._arun_sweep()
+
     def _run_sweep(self) -> SweepResult:
         start = time.monotonic()
         threads = self._strategy.collect()
@@ -50,6 +54,22 @@ class Sweeper:
             deleted_ids.append(tid)
         if deleted_ids:
             self._strategy.batch_delete(deleted_ids, self._checkpointer)
+        return self._build_result(threads, deleted_ids, start)
+
+    async def _arun_sweep(self) -> SweepResult:
+        start = time.monotonic()
+        threads = await self._strategy.acollect()
+        now = time.time()
+        to_delete = self._plan(threads, now)
+        deleted_ids: list[str] = []
+        for tid, ts, human in to_delete:
+            logger.debug("Deleting thread_id=%s (%s)", tid, human)
+            deleted_ids.append(tid)
+        if deleted_ids:
+            await self._strategy.abatch_delete(deleted_ids, self._checkpointer)
+        return self._build_result(threads, deleted_ids, start)
+
+    def _build_result(self, threads, deleted_ids, start) -> SweepResult:
         result = SweepResult(
             deleted_thread_ids=deleted_ids,
             active_thread_count=len(threads) - len(deleted_ids),
@@ -57,17 +77,12 @@ class Sweeper:
         )
         logger.info(
             "Sweep complete: %d expired, %d active (%.2fs)",
-            len(result.deleted_thread_ids),
-            result.active_thread_count,
+            len(result.deleted_thread_ids), result.active_thread_count,
             result.sweep_duration_seconds,
         )
         return result
 
-    def _plan(
-            self,
-            timestamps: dict[str, ThreadTimestamps],
-            now: float,
-    ) -> list[_DeleteItem]:
+    def _plan(self, timestamps, now) -> list[_DeleteItem]:
         to_delete: list[_DeleteItem] = []
         for tid, ts in timestamps.items():
             reason_code = self._expiry_reason_code(ts, now, self._policy)
@@ -86,9 +101,7 @@ class Sweeper:
         return None
 
     @staticmethod
-    def _expiry_human(
-            ts: ThreadTimestamps, now: float, policy: TTLPolicy
-    ) -> str:
+    def _expiry_human(ts, now, policy) -> str:
         if policy.idle_ttl_seconds is not None:
             idle = now - uuid6_to_unix(ts.latest_id)
             if idle > policy.idle_ttl_seconds:
