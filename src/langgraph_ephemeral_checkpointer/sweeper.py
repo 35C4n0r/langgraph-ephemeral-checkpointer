@@ -8,6 +8,7 @@ from ._strategies import Strategy, ThreadTimestamps
 from ._uuid6 import uuid6_to_unix, unix_to_uuid6
 from .policy import TTLPolicy
 from .result import SweepResult
+from .types import OnBeforeDelete, OnSweepComplete
 
 logger = logging.getLogger(__name__)
 
@@ -29,23 +30,22 @@ class Sweeper:
             checkpointer: BaseCheckpointSaver,
             policy: TTLPolicy,
             *,
+            on_before_delete: OnBeforeDelete | None = None,
+            on_sweep_complete: OnSweepComplete | None = None,
             _strategy: Strategy | None = None,
     ) -> None:
         self._checkpointer = checkpointer
         self._policy = policy
+        self._on_before_delete = on_before_delete
+        self._on_sweep_complete = on_sweep_complete
         self._strategy: Strategy = _strategies.detect(checkpointer) if _strategy is None else _strategy
 
     def sweep(self, *, dry_run: bool = False) -> SweepResult:
-        """Run one sweep cycle synchronously.
-
-        Args:
-            dry_run: When True, identifies threads that would be deleted but
-                performs no deletions.
-        """
+        """Run one sweep cycle synchronously."""
         return self._run_sweep(dry_run=dry_run)
 
     async def asweep(self, *, dry_run: bool = False) -> SweepResult:
-        """Async variant of sweep()."""
+        """Async variant of sweep(). Prefer this when using an async checkpointer."""
         return await self._arun_sweep(dry_run=dry_run)
 
     def _run_sweep(self, *, dry_run: bool) -> SweepResult:
@@ -92,6 +92,7 @@ class Sweeper:
             logger.info("Sweep complete: %d expired, %d active (%.2fs)",
                         len(result.deleted_thread_ids), result.active_thread_count,
                         result.sweep_duration_seconds)
+        self._fire_on_sweep_complete(result)
         return result
 
     def _plan(self, timestamps, now, dry_run):
@@ -105,6 +106,8 @@ class Sweeper:
                     logger.debug("[DRY RUN] Would delete thread_id=%s (%s)", tid, human)
                     dry_ids.append(tid)
                 else:
+                    if not self._fire_on_before_delete(tid, self._policy, reason_code):
+                        continue
                     to_delete.append((tid, ts, human))
         return dry_ids, to_delete
 
@@ -126,3 +129,13 @@ class Sweeper:
             if age > policy.hard_age_ttl_seconds:
                 return f"age {age:.0f}s > {policy.hard_age_ttl_seconds}s limit"
         return "expired"
+
+    def _fire_on_before_delete(self, thread_id: str, policy: TTLPolicy, reason: str) -> bool:
+        if self._on_before_delete is None:
+            return True
+        return self._on_before_delete(thread_id, policy, reason)
+
+    def _fire_on_sweep_complete(self, result: SweepResult) -> None:
+        if self._on_sweep_complete is None:
+            return
+        self._on_sweep_complete(result)
