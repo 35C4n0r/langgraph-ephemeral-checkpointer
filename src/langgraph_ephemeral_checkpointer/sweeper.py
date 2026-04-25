@@ -30,12 +30,14 @@ class Sweeper:
             checkpointer: BaseCheckpointSaver,
             policy: TTLPolicy,
             *,
+            safe_delete: bool = True,
             on_before_delete: OnBeforeDelete | None = None,
             on_sweep_complete: OnSweepComplete | None = None,
             _strategy: Strategy | None = None,
     ) -> None:
         self._checkpointer = checkpointer
         self._policy = policy
+        self._safe_delete = safe_delete
         self._on_before_delete = on_before_delete
         self._on_sweep_complete = on_sweep_complete
         self._strategy: Strategy = _strategies.detect(checkpointer) if _strategy is None else _strategy
@@ -55,9 +57,13 @@ class Sweeper:
         dry_ids, to_delete = self._plan(threads, now, dry_run)
         deleted_ids = list(dry_ids)
         if not dry_run:
-            tids = [t[0] for t in to_delete]
+            tids: list[str] = []
             for tid, ts, human in to_delete:
+                if self._safe_delete and not self._safe_check_sync(tid, ts):
+                    logger.debug("Skipping thread_id=%s: timestamp changed since sweep start", tid)
+                    continue
                 logger.debug("Deleting thread_id=%s (%s)", tid, human)
+                tids.append(tid)
             if tids:
                 self._strategy.batch_delete(tids, self._checkpointer)
             deleted_ids.extend(tids)
@@ -70,9 +76,13 @@ class Sweeper:
         dry_ids, to_delete = self._plan(threads, now, dry_run)
         deleted_ids = list(dry_ids)
         if not dry_run:
-            tids = [t[0] for t in to_delete]
+            tids: list[str] = []
             for tid, ts, human in to_delete:
+                if self._safe_delete and not await self._safe_check_async(tid, ts):
+                    logger.debug("Skipping thread_id=%s: timestamp changed since sweep start", tid)
+                    continue
                 logger.debug("Deleting thread_id=%s (%s)", tid, human)
+                tids.append(tid)
             if tids:
                 await self._strategy.abatch_delete(tids, self._checkpointer)
             deleted_ids.extend(tids)
@@ -129,6 +139,18 @@ class Sweeper:
             if age > policy.hard_age_ttl_seconds:
                 return f"age {age:.0f}s > {policy.hard_age_ttl_seconds}s limit"
         return "expired"
+
+    def _safe_check_sync(self, thread_id: str, original: ThreadTimestamps) -> bool:
+        current = self._checkpointer.get_tuple({"configurable": {"thread_id": thread_id}})
+        if current is None:
+            return False
+        return current.checkpoint["id"] <= original.latest_id
+
+    async def _safe_check_async(self, thread_id: str, original: ThreadTimestamps) -> bool:
+        current = await self._checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
+        if current is None:
+            return False
+        return current.checkpoint["id"] <= original.latest_id
 
     def _fire_on_before_delete(self, thread_id: str, policy: TTLPolicy, reason: str) -> bool:
         if self._on_before_delete is None:
