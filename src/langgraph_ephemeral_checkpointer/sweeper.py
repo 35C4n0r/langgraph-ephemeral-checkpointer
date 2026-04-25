@@ -8,7 +8,7 @@ from ._strategies import Strategy, ThreadTimestamps
 from ._uuid6 import uuid6_to_unix, unix_to_uuid6
 from .policy import TTLPolicy
 from .result import SweepResult
-from .types import OnBeforeDelete, OnSweepComplete
+from .types import OnBeforeDelete, OnSweepComplete, PolicyOverride, PolicyResolver
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ class Sweeper:
             checkpointer: BaseCheckpointSaver,
             policy: TTLPolicy,
             *,
+            policy_resolver: PolicyResolver | None = None,
             safe_delete: bool = True,
             on_before_delete: OnBeforeDelete | None = None,
             on_sweep_complete: OnSweepComplete | None = None,
@@ -37,6 +38,7 @@ class Sweeper:
     ) -> None:
         self._checkpointer = checkpointer
         self._policy = policy
+        self._policy_resolver = policy_resolver
         self._safe_delete = safe_delete
         self._on_before_delete = on_before_delete
         self._on_sweep_complete = on_sweep_complete
@@ -109,17 +111,30 @@ class Sweeper:
         dry_ids: list[str] = []
         to_delete: list[_DeleteItem] = []
         for tid, ts in timestamps.items():
-            reason_code = self._expiry_reason_code(ts, now, self._policy)
+            policy = self._resolve_policy(tid)
+            if policy is None:
+                continue
+            reason_code = self._expiry_reason_code(ts, now, policy)
             if reason_code:
-                human = self._expiry_human(ts, now, self._policy)
+                human = self._expiry_human(ts, now, policy)
                 if dry_run:
                     logger.debug("[DRY RUN] Would delete thread_id=%s (%s)", tid, human)
                     dry_ids.append(tid)
                 else:
-                    if not self._fire_on_before_delete(tid, self._policy, reason_code):
+                    if not self._fire_on_before_delete(tid, policy, reason_code):
                         continue
                     to_delete.append((tid, ts, human))
         return dry_ids, to_delete
+
+    def _resolve_policy(self, thread_id: str) -> TTLPolicy | None:
+        if self._policy_resolver is None:
+            return self._policy
+        override = self._policy_resolver(thread_id)
+        if isinstance(override, TTLPolicy):
+            return override
+        if override is PolicyOverride.EXEMPT:
+            return None
+        return self._policy
 
     def _expiry_reason_code(self, ts, now, policy) -> str | None:
         if policy.idle_ttl_seconds is not None and ts.latest_id < unix_to_uuid6(now - policy.idle_ttl_seconds):
