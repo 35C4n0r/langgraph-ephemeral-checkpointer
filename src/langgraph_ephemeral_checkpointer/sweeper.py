@@ -4,6 +4,7 @@ import time
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from . import _strategies
+from ._coordination import AdvisoryLock, get_advisory_lock
 from ._strategies import Strategy, ThreadTimestamps
 from ._uuid6 import uuid6_to_unix, unix_to_uuid6
 from .policy import TTLPolicy
@@ -31,6 +32,7 @@ class Sweeper:
             policy: TTLPolicy,
             *,
             policy_resolver: PolicyResolver | None = None,
+            enable_coordination: bool = False,
             safe_delete: bool = True,
             on_before_delete: OnBeforeDelete | None = None,
             on_sweep_complete: OnSweepComplete | None = None,
@@ -43,14 +45,45 @@ class Sweeper:
         self._on_before_delete = on_before_delete
         self._on_sweep_complete = on_sweep_complete
         self._strategy: Strategy = _strategies.detect(checkpointer) if _strategy is None else _strategy
+        self._advisory_lock: AdvisoryLock | None = get_advisory_lock(checkpointer, enable_coordination)
 
     def sweep(self, *, dry_run: bool = False) -> SweepResult:
         """Run one sweep cycle synchronously."""
-        return self._run_sweep(dry_run=dry_run)
+        start = time.monotonic()
+        lock_acquired = False
+        if self._advisory_lock is not None:
+            lock_acquired = self._advisory_lock.try_acquire()
+            if not lock_acquired:
+                logger.info("Advisory lock held by another sweeper instance; skipping this cycle")
+                return SweepResult(
+                    deleted_thread_ids=[],
+                    active_thread_count=0,
+                    sweep_duration_seconds=time.monotonic() - start,
+                )
+        try:
+            return self._run_sweep(dry_run=dry_run)
+        finally:
+            if lock_acquired and self._advisory_lock is not None:
+                self._advisory_lock.release()
 
     async def asweep(self, *, dry_run: bool = False) -> SweepResult:
         """Async variant of sweep(). Prefer this when using an async checkpointer."""
-        return await self._arun_sweep(dry_run=dry_run)
+        start = time.monotonic()
+        lock_acquired = False
+        if self._advisory_lock is not None:
+            lock_acquired = await self._advisory_lock.atry_acquire()
+            if not lock_acquired:
+                logger.info("Advisory lock held by another sweeper instance; skipping this cycle")
+                return SweepResult(
+                    deleted_thread_ids=[],
+                    active_thread_count=0,
+                    sweep_duration_seconds=time.monotonic() - start,
+                )
+        try:
+            return await self._arun_sweep(dry_run=dry_run)
+        finally:
+            if lock_acquired and self._advisory_lock is not None:
+                await self._advisory_lock.arelease()
 
     def _run_sweep(self, *, dry_run: bool) -> SweepResult:
         start = time.monotonic()
