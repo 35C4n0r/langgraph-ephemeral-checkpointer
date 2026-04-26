@@ -31,7 +31,24 @@ def detect(checkpointer: BaseCheckpointSaver):
     except ImportError:
         pass
 
+    try:
+        from langgraph.checkpoint.postgres import PostgresSaver
+        if isinstance(checkpointer, PostgresSaver):
+            from .postgres import PostgresStrategy
+            return PostgresStrategy(checkpointer)
+    except ImportError:
+        pass
+
+    try:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        if isinstance(checkpointer, AsyncPostgresSaver):
+            from .postgres import AsyncPostgresStrategy
+            return AsyncPostgresStrategy(checkpointer)
+    except ImportError:
+        pass
+
     raise TypeError(
         f"No strategy available for {type(checkpointer).__name__}. "
-        "Supported backends: InMemorySaver, SqliteSaver, AsyncSqliteSaver."
+        "Supported backends: InMemorySaver, SqliteSaver, AsyncSqliteSaver, "
+        "PostgresSaver, AsyncPostgresSaver."
     )
