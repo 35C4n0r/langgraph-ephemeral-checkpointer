@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -46,6 +47,9 @@ class Sweeper:
         self._on_sweep_complete = on_sweep_complete
         self._strategy: Strategy = _strategies.detect(checkpointer) if _strategy is None else _strategy
         self._advisory_lock: AdvisoryLock | None = get_advisory_lock(checkpointer, enable_coordination)
+        self._task: asyncio.Task | None = None
+        self._stop_event: asyncio.Event | None = None
+        self._interval_seconds: int = 300
 
     def sweep(self, *, dry_run: bool = False) -> SweepResult:
         """Run one sweep cycle synchronously."""
@@ -84,6 +88,36 @@ class Sweeper:
         finally:
             if lock_acquired and self._advisory_lock is not None:
                 await self._advisory_lock.arelease()
+
+    async def start(self, interval_seconds: int = 300) -> None:
+        """Start a background task that calls asweep() on a fixed interval."""
+        if self._task is not None and not self._task.done():
+            raise RuntimeError("Sweeper already running; call stop() first")
+        self._interval_seconds = interval_seconds
+        self._stop_event = asyncio.Event()
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self) -> None:
+        """Stop the background sweep loop and wait for the current cycle to finish."""
+        if self._stop_event is not None:
+            self._stop_event.set()
+        if self._task is not None and not self._task.done():
+            await self._task
+        self._task = None
+        self._stop_event = None
+
+    async def _loop(self) -> None:
+        assert self._stop_event is not None
+        while True:
+            await self.asweep()
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self._interval_seconds,
+                )
+                break
+            except asyncio.TimeoutError:
+                pass
 
     def _run_sweep(self, *, dry_run: bool) -> SweepResult:
         start = time.monotonic()
