@@ -1,11 +1,12 @@
 [project]
 name = "langgraph-ephemeral-checkpointer"
-version = "0.1.0"
+version = "0.1.0rc1"
 description = "TTL-based thread retention for LangGraph checkpointers"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "clypi",
+    "langgraph>=1.2.0",
     "langgraph-checkpoint>=3.0.0",
 ]
 
@@ -17,6 +18,11 @@ test = [
     "pytest-asyncio>=0.24",
     "langgraph>=1.2.0",
     "langgraph-checkpoint-sqlite>=3.1.0",
+    "aiosqlite>=0.20",
+]
+benchmark = [
+    "langgraph-checkpoint-sqlite>=3.0.3",
+    "langgraph-checkpoint-postgres>=3.0.5",
     "aiosqlite>=0.20",
 ]
 

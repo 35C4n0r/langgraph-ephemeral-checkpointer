@@ -10,8 +10,11 @@ class MemoryStrategy(Strategy):
     def __init__(self, checkpointer: InMemorySaver) -> None:
         self._checkpointer = checkpointer
 
-    def collect(self) -> dict[str, ThreadTimestamps]:
-        result: dict[str, ThreadTimestamps] = {}
+    def collect(
+            self, cursor: str | None
+    ) -> tuple[dict[str, ThreadTimestamps], str | None]:
+        updates: dict[str, ThreadTimestamps] = {}
+        global_max: str | None = None
 
         for thread_id, ns_dict in self._checkpointer.storage.items():
             thread_max: str | None = None
@@ -29,12 +32,18 @@ class MemoryStrategy(Strategy):
                 continue
             assert thread_min is not None
 
-            result[thread_id] = ThreadTimestamps(
-                latest_id=thread_max,
-                earliest_id=thread_min,
-            )
+            if global_max is None or thread_max > global_max:
+                global_max = thread_max
 
-        return result
+            if cursor is None or thread_max > cursor:
+                updates[thread_id] = ThreadTimestamps(
+                    latest_id=thread_max,
+                    earliest_id=thread_min,
+                )
 
-    async def acollect(self) -> dict[str, ThreadTimestamps]:
-        return self.collect()
+        return updates, global_max
+
+    async def acollect(
+            self, cursor: str | None
+    ) -> tuple[dict[str, ThreadTimestamps], str | None]:
+        return self.collect(cursor)

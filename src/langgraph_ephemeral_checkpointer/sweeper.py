@@ -50,6 +50,8 @@ class Sweeper:
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
         self._interval_seconds: int = 300
+        self._index: dict[str, ThreadTimestamps] = {}
+        self._cursor: str | None = None
 
     def sweep(self, *, dry_run: bool = False) -> SweepResult:
         """Run one sweep cycle synchronously."""
@@ -119,79 +121,146 @@ class Sweeper:
             except asyncio.TimeoutError:
                 pass
 
+    def _merge_updates(self, updates: dict[str, ThreadTimestamps]) -> None:
+        for tid, ts in updates.items():
+            if tid in self._index:
+                old = self._index[tid]
+                self._index[tid] = ThreadTimestamps(
+                    latest_id=max(old.latest_id, ts.latest_id),
+                    earliest_id=old.earliest_id,
+                )
+            else:
+                self._index[tid] = ts
+
+    def _drop_from_index(self, thread_ids: list[str]) -> None:
+        for tid in thread_ids:
+            self._index.pop(tid, None)
+
     def _run_sweep(self, *, dry_run: bool) -> SweepResult:
         start = time.monotonic()
-        threads = self._strategy.collect()
+
+        updates, new_cursor = self._strategy.collect(self._cursor)
+        if self._cursor is None:
+            self._index = updates
+        else:
+            self._merge_updates(updates)
+        if new_cursor is not None:
+            self._cursor = new_cursor
+
         now = time.time()
-        dry_ids, to_delete = self._plan(threads, now, dry_run)
+        dry_ids, to_delete = self._plan(self._index, now, dry_run)
+
         deleted_ids = list(dry_ids)
+
+        survivors: list[str] = []
+        for tid, ts, human in to_delete:
+            if self._safe_delete and not self._safe_check_sync(tid, ts):
+                logger.debug("Skipping thread_id=%s: timestamp changed since sweep start", tid)
+                continue
+            logger.debug("Deleting thread_id=%s (%s)", tid, human)
+            survivors.append(tid)
+
+        if survivors:
+            self._strategy.batch_delete(survivors, self._checkpointer)
+            deleted_ids.extend(survivors)
+
         if not dry_run:
-            tids: list[str] = []
-            for tid, ts, human in to_delete:
-                if self._safe_delete and not self._safe_check_sync(tid, ts):
-                    logger.debug("Skipping thread_id=%s: timestamp changed since sweep start", tid)
-                    continue
-                logger.debug("Deleting thread_id=%s (%s)", tid, human)
-                tids.append(tid)
-            if tids:
-                self._strategy.batch_delete(tids, self._checkpointer)
-            deleted_ids.extend(tids)
-        return self._build_result(threads, deleted_ids, start, dry_run)
+            self._drop_from_index(deleted_ids)
+
+        return self._build_result(deleted_ids, start, dry_run)
 
     async def _arun_sweep(self, *, dry_run: bool) -> SweepResult:
         start = time.monotonic()
-        threads = await self._strategy.acollect()
-        now = time.time()
-        dry_ids, to_delete = self._plan(threads, now, dry_run)
-        deleted_ids = list(dry_ids)
-        if not dry_run:
-            tids: list[str] = []
-            for tid, ts, human in to_delete:
-                if self._safe_delete and not await self._safe_check_async(tid, ts):
-                    logger.debug("Skipping thread_id=%s: timestamp changed since sweep start", tid)
-                    continue
-                logger.debug("Deleting thread_id=%s (%s)", tid, human)
-                tids.append(tid)
-            if tids:
-                await self._strategy.abatch_delete(tids, self._checkpointer)
-            deleted_ids.extend(tids)
-        return self._build_result(threads, deleted_ids, start, dry_run)
 
-    def _build_result(self, threads, deleted_ids, start, dry_run) -> SweepResult:
-        result = SweepResult(
-            deleted_thread_ids=deleted_ids,
-            active_thread_count=len(threads) - len(deleted_ids),
-            sweep_duration_seconds=time.monotonic() - start,
-        )
-        if dry_run:
-            logger.info("[DRY RUN] Would expire %d threads, %d active (%.2fs)",
-                        len(result.deleted_thread_ids), result.active_thread_count,
-                        result.sweep_duration_seconds)
+        updates, new_cursor = await self._strategy.acollect(self._cursor)
+        if self._cursor is None:
+            self._index = updates
         else:
-            logger.info("Sweep complete: %d expired, %d active (%.2fs)",
-                        len(result.deleted_thread_ids), result.active_thread_count,
-                        result.sweep_duration_seconds)
-        self._fire_on_sweep_complete(result)
-        return result
+            self._merge_updates(updates)
+        if new_cursor is not None:
+            self._cursor = new_cursor
 
-    def _plan(self, timestamps, now, dry_run):
+        now = time.time()
+        dry_ids, to_delete = self._plan(self._index, now, dry_run)
+
+        deleted_ids = list(dry_ids)
+
+        survivors: list[str] = []
+        for tid, ts, human in to_delete:
+            if self._safe_delete and not await self._safe_check_async(tid, ts):
+                logger.debug("Skipping thread_id=%s: timestamp changed since sweep start", tid)
+                continue
+            logger.debug("Deleting thread_id=%s (%s)", tid, human)
+            survivors.append(tid)
+
+        if survivors:
+            await self._strategy.abatch_delete(survivors, self._checkpointer)
+            deleted_ids.extend(survivors)
+
+        if not dry_run:
+            self._drop_from_index(deleted_ids)
+
+        return self._build_result(deleted_ids, start, dry_run)
+
+    def _plan(
+            self,
+            timestamps: dict[str, ThreadTimestamps],
+            now: float,
+            dry_run: bool,
+    ) -> tuple[list[str], list[_DeleteItem]]:
         dry_ids: list[str] = []
         to_delete: list[_DeleteItem] = []
+
+        # Threshold UUIDs are computed once per distinct policy object, not once per thread.
+        _cache: dict[int, tuple[str | None, str | None]] = {}
+
+        def _thresholds(policy: TTLPolicy) -> tuple[str | None, str | None]:
+            pid = id(policy)
+            if pid not in _cache:
+                idle = unix_to_uuid6(now - policy.idle_ttl_seconds) if policy.idle_ttl_seconds is not None else None
+                age = unix_to_uuid6(now - policy.hard_age_ttl_seconds) if policy.hard_age_ttl_seconds is not None else None
+                _cache[pid] = (idle, age)
+            return _cache[pid]
+
         for tid, ts in timestamps.items():
             policy = self._resolve_policy(tid)
             if policy is None:
                 continue
-            reason_code = self._expiry_reason_code(ts, now, policy)
+
+            idle_threshold, age_threshold = _thresholds(policy)
+
+            reason_code: str | None = None
+            if idle_threshold is not None and ts.latest_id < idle_threshold:
+                reason_code = _REASON_IDLE
+            elif age_threshold is not None and ts.earliest_id < age_threshold:
+                reason_code = _REASON_AGE
+
             if reason_code:
                 human = self._expiry_human(ts, now, policy)
                 if dry_run:
                     logger.debug("[DRY RUN] Would delete thread_id=%s (%s)", tid, human)
                     dry_ids.append(tid)
-                else:
-                    if not self._fire_on_before_delete(tid, policy, reason_code):
-                        continue
-                    to_delete.append((tid, ts, human))
+                    continue
+                if not self._fire_on_before_delete(tid, policy, reason_code):
+                    continue
+                to_delete.append((tid, ts, human))
+
         return dry_ids, to_delete
+
+    def _build_result(
+            self,
+            deleted_ids: list[str],
+            start: float,
+            dry_run: bool,
+    ) -> SweepResult:
+        result = SweepResult(
+            deleted_thread_ids=deleted_ids,
+            active_thread_count=len(self._index),
+            sweep_duration_seconds=time.monotonic() - start,
+        )
+        self._log_result(result, dry_run)
+        self._fire_on_sweep_complete(result)
+        return result
 
     def _resolve_policy(self, thread_id: str) -> TTLPolicy | None:
         if self._policy_resolver is None:
@@ -211,7 +280,9 @@ class Sweeper:
         return None
 
     @staticmethod
-    def _expiry_human(ts, now, policy) -> str:
+    def _expiry_human(
+            ts: ThreadTimestamps, now: float, policy: TTLPolicy
+    ) -> str:
         if policy.idle_ttl_seconds is not None:
             idle = now - uuid6_to_unix(ts.latest_id)
             if idle > policy.idle_ttl_seconds:
@@ -243,3 +314,20 @@ class Sweeper:
         if self._on_sweep_complete is None:
             return
         self._on_sweep_complete(result)
+
+    @staticmethod
+    def _log_result(result: SweepResult, dry_run: bool) -> None:
+        if dry_run:
+            logger.info(
+                "[DRY RUN] Would expire %d threads, %d active (%.2fs)",
+                len(result.deleted_thread_ids),
+                result.active_thread_count,
+                result.sweep_duration_seconds,
+            )
+        else:
+            logger.info(
+                "Sweep complete: %d expired, %d active (%.2fs)",
+                len(result.deleted_thread_ids),
+                result.active_thread_count,
+                result.sweep_duration_seconds,
+            )
