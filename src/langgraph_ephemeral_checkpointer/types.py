@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .policy import TTLPolicy

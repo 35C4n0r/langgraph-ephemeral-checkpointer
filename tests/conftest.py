@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from langgraph.checkpoint.base import CheckpointTuple
 
@@ -11,7 +11,7 @@ from langgraph_ephemeral_checkpointer._uuid6 import unix_to_uuid6
 
 def iso_ts(offset_seconds: float = 0.0) -> str:
     """Return an ISO 8601 timestamp offset_seconds from now."""
-    dt = datetime.now(timezone.utc) + timedelta(seconds=offset_seconds)
+    dt = datetime.now(UTC) + timedelta(seconds=offset_seconds)
     return dt.isoformat()
 
 

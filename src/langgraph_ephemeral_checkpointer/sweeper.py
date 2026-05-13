@@ -7,7 +7,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from . import _strategies
 from ._coordination import AdvisoryLock, get_advisory_lock
 from ._strategies import Strategy, ThreadTimestamps
-from ._uuid6 import uuid6_to_unix, unix_to_uuid6
+from ._uuid6 import unix_to_uuid6, uuid6_to_unix
 from .policy import TTLPolicy
 from .result import SweepResult
 from .types import OnBeforeDelete, OnSweepComplete, PolicyOverride, PolicyResolver
@@ -118,7 +118,7 @@ class Sweeper:
                     timeout=self._interval_seconds,
                 )
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     def _merge_updates(self, updates: dict[str, ThreadTimestamps]) -> None:

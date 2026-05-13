@@ -30,6 +30,16 @@ benchmark = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.ruff]
+line-length = 120
+exclude = ["benchmarks/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = [
+    "E501",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
