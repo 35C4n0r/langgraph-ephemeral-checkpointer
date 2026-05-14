@@ -81,8 +81,8 @@ def test_dry_run_threads_still_exist():
         x: int
 
     saver = InMemorySaver()
-    b = StateGraph(S)
-    b.add_node("n", lambda s: {"x": s["x"] + 1})
+    b = StateGraph(S)  # pyrefly: ignore[bad-specialization]
+    b.add_node("n", lambda s: {"x": s["x"] + 1})  # pyrefly: ignore[bad-argument-type]
     b.add_edge(START, "n")
     b.add_edge("n", END)
     graph = b.compile(checkpointer=saver)

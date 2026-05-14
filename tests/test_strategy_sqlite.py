@@ -20,8 +20,8 @@ class _State(TypedDict):
     x: int
 
 def _build_graph(saver):
-    builder = StateGraph(_State)
-    builder.add_node("inc", lambda s: {"x": s["x"] + 1})
+    builder = StateGraph(_State)  # pyrefly: ignore[bad-specialization]
+    builder.add_node("inc", lambda s: {"x": s["x"] + 1})  # pyrefly: ignore[bad-argument-type]
     builder.add_edge(START, "inc")
     builder.add_edge("inc", END)
     return builder.compile(checkpointer=saver)
