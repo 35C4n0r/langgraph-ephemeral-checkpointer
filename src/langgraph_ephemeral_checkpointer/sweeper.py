@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 _REASON_IDLE = "idle_ttl"
 _REASON_AGE = "hard_age_ttl"
 
+# (thread_id, timestamps, human_description)
 _DeleteItem = tuple[str, ThreadTimestamps, str]
 
 
@@ -39,6 +40,24 @@ class Sweeper:
             on_sweep_complete: OnSweepComplete | None = None,
             _strategy: Strategy | None = None,
     ) -> None:
+        """
+        Args:
+            checkpointer: The LangGraph checkpointer to sweep.
+            policy: Default TTL policy applied to all threads.
+            policy_resolver: Optional per-thread policy override. Called with
+                thread_id; return a TTLPolicy to override, PolicyOverride.EXEMPT
+                to never expire, or PolicyOverride.USE_DEFAULT to use policy.
+            enable_coordination: When True, uses a PostgreSQL advisory lock so
+                that only one sweeper instance runs per sweep cycle across
+                multiple processes. Silently ignored for non-Postgres backends.
+            safe_delete: When True, re-fetches each thread's latest checkpoint
+                immediately before deletion and skips it if a newer checkpoint
+                has appeared since the sweep started. Disable only in tests or
+                single-writer setups.
+            on_before_delete: Called with (thread_id, policy, reason) before
+                each deletion. Return False to veto the deletion.
+            on_sweep_complete: Called with the SweepResult after each sweep.
+        """
         self._checkpointer = checkpointer
         self._policy = policy
         self._policy_resolver = policy_resolver
@@ -50,11 +69,30 @@ class Sweeper:
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
         self._interval_seconds: int = 300
+
+        # Incremental index carried across sweep cycles.
+        # _index: per-thread timestamps accumulated from all sweeps so far.
+        # _cursor: max checkpoint_id (UUIDv6 string) seen on the last sweep,
+        #          or None → triggers a full scan on the next cycle.
         self._index: dict[str, ThreadTimestamps] = {}
         self._cursor: str | None = None
 
+
     def sweep(self, *, dry_run: bool = False) -> SweepResult:
-        """Run one sweep cycle synchronously."""
+        """Run one sweep cycle synchronously.
+
+        Collects thread timestamps, evaluates each thread against its policy,
+        and deletes expired threads.
+
+        Args:
+            dry_run: When True, identifies threads that would be deleted but
+                performs no deletions. Deleted thread IDs still appear in the
+                returned SweepResult for inspection.
+
+        Returns:
+            SweepResult with deleted thread IDs, active thread count, and
+            wall-clock duration.
+        """
         start = time.monotonic()
         lock_acquired = False
         if self._advisory_lock is not None:
@@ -92,7 +130,14 @@ class Sweeper:
                 await self._advisory_lock.arelease()
 
     async def start(self, interval_seconds: int = 300) -> None:
-        """Start a background task that calls asweep() on a fixed interval."""
+        """Start a background task that calls asweep() on a fixed interval.
+
+        Args:
+            interval_seconds: Seconds to wait between sweep cycles. Defaults to 300.
+
+        Raises:
+            RuntimeError: If the sweeper is already running. Call stop() first.
+        """
         if self._task is not None and not self._task.done():
             raise RuntimeError("Sweeper already running; call stop() first")
         self._interval_seconds = interval_seconds
@@ -108,6 +153,7 @@ class Sweeper:
         self._task = None
         self._stop_event = None
 
+
     async def _loop(self) -> None:
         assert self._stop_event is not None
         while True:
@@ -120,6 +166,7 @@ class Sweeper:
                 break
             except TimeoutError:
                 pass
+
 
     def _merge_updates(self, updates: dict[str, ThreadTimestamps]) -> None:
         for tid, ts in updates.items():
@@ -135,6 +182,7 @@ class Sweeper:
     def _drop_from_index(self, thread_ids: list[str]) -> None:
         for tid in thread_ids:
             self._index.pop(tid, None)
+
 
     def _run_sweep(self, *, dry_run: bool) -> SweepResult:
         start = time.monotonic()
@@ -202,6 +250,7 @@ class Sweeper:
 
         return self._build_result(deleted_ids, start, dry_run)
 
+
     def _plan(
             self,
             timestamps: dict[str, ThreadTimestamps],
@@ -262,6 +311,7 @@ class Sweeper:
         self._fire_on_sweep_complete(result)
         return result
 
+
     def _resolve_policy(self, thread_id: str) -> TTLPolicy | None:
         if self._policy_resolver is None:
             return self._policy
@@ -272,7 +322,10 @@ class Sweeper:
             return None
         return self._policy
 
-    def _expiry_reason_code(self, ts, now, policy) -> str | None:
+    @staticmethod
+    def _expiry_reason_code(
+            ts: ThreadTimestamps, now: float, policy: TTLPolicy
+    ) -> str | None:
         if policy.idle_ttl_seconds is not None and ts.latest_id < unix_to_uuid6(now - policy.idle_ttl_seconds):
             return _REASON_IDLE
         if policy.hard_age_ttl_seconds is not None and ts.earliest_id < unix_to_uuid6(now - policy.hard_age_ttl_seconds):

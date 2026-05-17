@@ -27,7 +27,7 @@ class Strategy(ABC):
     @abstractmethod
     def collect(
             self, cursor: str | None
-    ) -> tuple[dict[str, "ThreadTimestamps"], str | None]:
+    ) -> tuple[dict[str, ThreadTimestamps], str | None]:
         """Return thread timestamps, optionally filtered to activity since cursor.
 
         Args:
@@ -45,7 +45,7 @@ class Strategy(ABC):
     @abstractmethod
     async def acollect(
             self, cursor: str | None
-    ) -> tuple[dict[str, "ThreadTimestamps"], str | None]:
+    ) -> tuple[dict[str, ThreadTimestamps], str | None]:
         """Async variant of collect()."""
         ...
 

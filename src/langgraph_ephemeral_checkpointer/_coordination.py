@@ -47,7 +47,7 @@ class AdvisoryLock:
         async with self._checkpointer._cursor() as cur:
             await cur.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_KEY,))
 
-def get_advisory_lock(checkpointer, enable: bool) -> "AdvisoryLock | None":
+def get_advisory_lock(checkpointer, enable: bool) -> AdvisoryLock | None:
     """Return an AdvisoryLock if the backend supports it and enable=True, else None."""
     if not enable:
         return None

@@ -136,7 +136,7 @@ async def main():
         sweeper = Sweeper(checkpointer, policy)
 
         # sweep every 5 minutes
-        asyncio.create_task(sweeper.start(interval_seconds=300))
+        await sweeper.start(interval_seconds=300)
 
         # ... your application runs here ...
 

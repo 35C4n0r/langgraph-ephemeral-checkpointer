@@ -23,13 +23,13 @@ def unix_to_uuid6(ts: float) -> str:
     """Create a UUIDv6 string from a unix timestamp for threshold comparisons.
 
     node and clock_seq are zeroed so this is the smallest valid UUID for the
-    given timestamp — any real checkpoint at that moment compares greater.
+    given timestamp; any real checkpoint at that moment compares greater.
     """
     timestamp = int(ts * 1e9 / 100) + _UUID_EPOCH_OFFSET
     time_hi_and_mid = (timestamp >> 12) & 0xffff_ffff_ffff
     time_lo = timestamp & 0x0fff
     int_uuid_6 = time_hi_and_mid << 80
     int_uuid_6 |= time_lo << 64
-    # node=0, clock_seq=0 — minimum UUID for this timestamp
+    # node=0, clock_seq=0: minimum UUID for this timestamp
     int_uuid_6 |= _RFC_4122_VERSION_6_FLAGS
     return str(_uuid_mod.UUID(int=int_uuid_6))
