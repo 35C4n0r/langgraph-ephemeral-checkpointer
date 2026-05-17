@@ -7,5 +7,4 @@ dist/
 .idea/
 benchmarks/
 docker-compose.yml
-findings.md
-FORIEGN_BM.md
+uv.lock
