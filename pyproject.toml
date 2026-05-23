@@ -1,6 +1,6 @@
 [project]
 name = "langgraph-ephemeral-checkpointer"
-version = "0.0.1rc1"
+version = "0.0.1"
 description = "TTL-based thread retention for LangGraph checkpointers"
 readme = "README.md"
 license = {text = "MIT"}
