@@ -1,8 +1,20 @@
 [project]
 name = "langgraph-ephemeral-checkpointer"
-version = "0.1.0rc2"
+version = "0.0.1rc1"
 description = "TTL-based thread retention for LangGraph checkpointers"
 readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "35C4n0r"}]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=1.2.0",
