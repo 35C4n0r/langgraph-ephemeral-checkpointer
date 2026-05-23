@@ -1,0 +1,26 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    if: github.repository == '35C4n0r/langgraph-ephemeral-checkpointer'
+    environment:
+      name: pypi
+      url: https://pypi.org/project/langgraph-ephemeral-checkpointer/
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download release assets
+        run: gh release download ${{ github.event.release.tag_name }} --dir dist/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.14.0
