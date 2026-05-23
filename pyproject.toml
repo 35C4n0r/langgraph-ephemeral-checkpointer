@@ -5,11 +5,8 @@ description = "TTL-based thread retention for LangGraph checkpointers"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "clypi",
     "langgraph>=1.2.0",
     "langgraph-checkpoint>=3.0.0",
-    "langgraph-checkpoint-sqlite>=3.1.0",
-    "pyrefly>=0.60.0",
 ]
 
 [project.optional-dependencies]
