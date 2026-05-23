@@ -1,8 +1,4 @@
-"""Advisory lock helpers for multi-instance sweep coordination.
-
-Only PostgreSQL supports advisory locks.  For all other backends
-get_advisory_lock() returns None and coordination is skipped.
-"""
+"""Advisory lock helpers for multi-instance sweep coordination."""
 
 import hashlib
 import logging
@@ -18,11 +14,7 @@ _LOCK_KEY: int = int.from_bytes(
 
 
 class AdvisoryLock:
-    """Thin wrapper around PostgreSQL session-level advisory locks.
-
-    Session-level locks are automatically released when the DB connection
-    closes, so a crashed sweeper instance won't permanently block others.
-    """
+    """PostgreSQL session-level advisory lock. Released automatically when the connection closes."""
 
     def __init__(self, checkpointer) -> None:
         self._checkpointer = checkpointer
@@ -49,7 +41,15 @@ class AdvisoryLock:
             await cur.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_KEY,))
 
 def get_advisory_lock(checkpointer, enable: bool) -> AdvisoryLock | None:
-    """Return an AdvisoryLock if the backend supports it and enable=True, else None."""
+    """Return an AdvisoryLock for the given checkpointer, or None.
+
+    Args:
+        checkpointer: The LangGraph checkpointer to lock against.
+        enable: If False, always returns None without checking the backend.
+
+    Returns:
+        AdvisoryLock if the backend is PostgreSQL and enable is True, else None.
+    """
     if not enable:
         return None
 

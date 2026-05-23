@@ -3,16 +3,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class TTLPolicy:
-    """Immutable retention policy applied to LangGraph threads.
-
-    At least one TTL field must be set. Both may be combined; a thread
-    expires as soon as either rule fires.
+    """Retention policy for LangGraph threads. At least one field must be set;
+    a thread expires as soon as either rule fires.
 
     Attributes:
-        idle_ttl_seconds: Expire a thread whose most-recent checkpoint is
-            older than this many seconds.
-        hard_age_ttl_seconds: Expire a thread whose oldest checkpoint is
-            older than this many seconds, regardless of recent activity.
+        idle_ttl_seconds: Expire threads idle for longer than this many seconds.
+        hard_age_ttl_seconds: Expire threads whose first checkpoint is older than
+            this many seconds, regardless of recent activity.
     """
 
     idle_ttl_seconds: int | None = None

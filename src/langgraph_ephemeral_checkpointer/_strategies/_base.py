@@ -17,28 +17,22 @@ class ThreadTimestamps:
 
 
 class Strategy(ABC):
-    """Backend-specific implementation of checkpoint scanning and deletion.
-
-    Subclass this to support a new checkpointer type. The Sweeper calls these
-    methods; it never touches the checkpointer directly except through the
-    batch_delete/abatch_delete helpers.
-    """
+    """Backend-specific checkpoint scanning and deletion. Subclass to add a new backend."""
 
     @abstractmethod
     def collect(
             self, cursor: str | None
     ) -> tuple[dict[str, ThreadTimestamps], str | None]:
-        """Return thread timestamps, optionally filtered to activity since cursor.
+        """Scan checkpoints and return per-thread timestamps.
 
         Args:
-            cursor: Max checkpoint_id (UUIDv6 string) seen on the previous sweep,
-                or None for a full scan.
+            cursor: Max checkpoint_id seen on the previous sweep, or None for a
+                full scan.
 
         Returns:
-            A tuple of (threads, new_cursor) where threads maps thread_id to
-            ThreadTimestamps for threads active since cursor (or all threads when
-            cursor is None), and new_cursor is the max checkpoint_id seen this
-            cycle (None if the backend has no cursor support).
+            Tuple of (threads, new_cursor). threads maps thread_id to
+            ThreadTimestamps for threads active since cursor. new_cursor is the
+            max checkpoint_id seen this cycle, or None if unsupported.
         """
         ...
 
@@ -46,7 +40,17 @@ class Strategy(ABC):
     async def acollect(
             self, cursor: str | None
     ) -> tuple[dict[str, ThreadTimestamps], str | None]:
-        """Async variant of collect()."""
+        """Async variant of collect().
+
+        Args:
+            cursor: Max checkpoint_id seen on the previous sweep, or None for a
+                full scan.
+
+        Returns:
+            Tuple of (threads, new_cursor). threads maps thread_id to
+            ThreadTimestamps for threads active since cursor. new_cursor is the
+            max checkpoint_id seen this cycle, or None if unsupported.
+        """
         ...
 
     def batch_delete(
@@ -54,10 +58,11 @@ class Strategy(ABC):
             thread_ids: list[str],
             checkpointer: BaseCheckpointSaver,
     ) -> None:
-        """Delete multiple threads in one operation.
+        """Delete threads. SQL strategies override with a single IN/ANY query.
 
-        Default: sequential delete_thread() loop, correct for any backend.
-        SQL strategies override with a single IN / ANY statement.
+        Args:
+            thread_ids: IDs of threads to delete.
+            checkpointer: The checkpointer to delete from.
         """
         for tid in thread_ids:
             checkpointer.delete_thread(tid)
@@ -67,6 +72,11 @@ class Strategy(ABC):
             thread_ids: list[str],
             checkpointer: BaseCheckpointSaver,
     ) -> None:
-        """Async variant of batch_delete()."""
+        """Async variant of batch_delete().
+
+        Args:
+            thread_ids: IDs of threads to delete.
+            checkpointer: The checkpointer to delete from.
+        """
         for tid in thread_ids:
             await checkpointer.adelete_thread(tid)

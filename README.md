@@ -1,12 +1,11 @@
 # langgraph-ephemeral-checkpointer
 
-TTL-based thread retention for [LangGraph](https://github.com/langchain-ai/langgraph) checkpointers. Automatically expire and delete old conversation threads based on idle time or absolute age.
+TTL-based thread retention for [LangGraph](https://github.com/langchain-ai/langgraph) checkpointers. Expire and delete old conversation threads based on idle time or absolute age.
 
 ---
 
 ## Table of Contents
 
-- [Why](#why)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [TTLPolicy](#ttlpolicy)
@@ -21,12 +20,6 @@ TTL-based thread retention for [LangGraph](https://github.com/langchain-ai/langg
 - [Multi-instance coordination](#multi-instance-coordination)
 - [Backends](#backends)
 - [API reference](#api-reference)
-
----
-
-## Why
-
-LangGraph checkpointers persist every conversation state to storage. Without a retention policy, threads accumulate indefinitely. This library runs as a sidecar and periodically sweeps expired threads according to rules you define.
 
 ---
 
@@ -76,7 +69,7 @@ policy = TTLPolicy(idle_ttl_seconds=7200)
 # Hard age TTL: delete threads older than 7 days regardless of activity
 policy = TTLPolicy(hard_age_ttl_seconds=604800)
 
-# Combine rules: a thread is expired if ANY rule matches
+# Combine rules: a thread expires as soon as either fires
 policy = TTLPolicy(
     idle_ttl_seconds=3600,
     hard_age_ttl_seconds=86400,
@@ -88,13 +81,13 @@ policy = TTLPolicy(
 | `idle_ttl_seconds` | `int \| None` | Expire threads with no checkpoint activity for this many seconds |
 | `hard_age_ttl_seconds` | `int \| None` | Expire threads whose first checkpoint is older than this many seconds |
 
-`TTLPolicy` is a frozen dataclass, instances are immutable.
+`TTLPolicy` is a frozen dataclass — instances are immutable.
 
 ---
 
 ## Sweeper
 
-`Sweeper` is the main entry point. It takes a checkpointer and a policy, and handles the rest.
+`Sweeper` is the main entry point.
 
 ```python
 Sweeper(
@@ -135,8 +128,7 @@ async def main():
         policy = TTLPolicy(idle_ttl_seconds=3600)
         sweeper = Sweeper(checkpointer, policy)
 
-        # sweep every 5 minutes
-        await sweeper.start(interval_seconds=300)
+        await sweeper.start(interval_seconds=300)  # sweep every 5 minutes
 
         # ... your application runs here ...
 
@@ -198,7 +190,7 @@ sweeper = Sweeper(checkpointer, default_policy, policy_resolver=resolver)
 | `PolicyOverride.USE_DEFAULT` | Apply the sweeper's global policy |
 | `PolicyOverride.EXEMPT` | Never expire this thread |
 
-If the resolver raises an exception, it propagates and the sweep is aborted. The resolver is called exactly once per thread per sweep.
+If the resolver raises, the sweep aborts. It is called once per thread per sweep.
 
 ---
 
@@ -211,7 +203,6 @@ Called before each thread is deleted. Return `False` to skip the deletion.
 ```python
 def on_before_delete(thread_id: str, policy: TTLPolicy, reason: str) -> bool:
     print(f"Deleting {thread_id!r} (reason: {reason})")
-    # return False to abort this specific deletion
     return True
 
 sweeper = Sweeper(checkpointer, policy, on_before_delete=on_before_delete)
@@ -247,10 +238,9 @@ Exceptions raised inside either callback propagate and abort the sweep.
 
 ## Safe delete
 
-By default (`safe_delete=True`), the sweeper re-reads each thread's latest checkpoint immediately before deleting it and compares timestamps. If the thread received a new checkpoint between the scan and the delete (meaning it became active again), the deletion is skipped.
+By default (`safe_delete=True`), the sweeper re-reads each thread's latest checkpoint immediately before deleting and skips it if a newer checkpoint has appeared since the scan started.
 
 ```python
-# disable if you don't need the extra safety check (slightly faster)
 sweeper = Sweeper(checkpointer, policy, safe_delete=False)
 ```
 
@@ -273,15 +263,15 @@ async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
     result = await sweeper.asweep()
 ```
 
-When `enable_coordination=True` and the backend is PostgreSQL, the sweeper acquires a session-level advisory lock before scanning. If another instance holds the lock, the sweep is skipped and `SweepResult` is returned with empty `deleted_thread_ids`. The lock is automatically released when the database connection closes, so crashed instances never block others permanently.
+When `enable_coordination=True` and the backend is PostgreSQL, the sweeper acquires a session-level advisory lock before scanning. If another instance holds the lock, the sweep is skipped and an empty `SweepResult` is returned. The lock is tied to the database connection, so a crashed instance releases it automatically.
 
-This option is a no-op for non-PostgreSQL backends (a warning is logged).
+`enable_coordination=True` is a no-op for non-PostgreSQL backends — a warning is logged.
 
 ---
 
 ## Backends
 
-The sweeper automatically selects the most efficient strategy for your checkpointer.
+The sweeper picks the most efficient strategy for your checkpointer automatically.
 
 | Checkpointer | Strategy | Notes |
 |---|---|---|

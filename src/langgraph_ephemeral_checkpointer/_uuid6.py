@@ -10,7 +10,14 @@ _RFC_4122_VERSION_6_FLAGS = (0x6 << 76) | (0b10 << 62)  # version=6, variant=RFC
 
 
 def uuid6_to_unix(uuid_str: str | object) -> float:
-    """Extract a unix timestamp (seconds) from a UUIDv6 string."""
+    """Extract a unix timestamp from a UUIDv6 string.
+
+    Args:
+        uuid_str: A UUIDv6 string or UUID object.
+
+    Returns:
+        Unix timestamp in seconds.
+    """
     u = _uuid_mod.UUID(str(uuid_str))
     i = u.int
     time_hi_and_mid = (i >> 80) & 0xffff_ffff_ffff
@@ -24,6 +31,12 @@ def unix_to_uuid6(ts: float) -> str:
 
     node and clock_seq are zeroed so this is the smallest valid UUID for the
     given timestamp; any real checkpoint at that moment compares greater.
+
+    Args:
+        ts: Unix timestamp in seconds.
+
+    Returns:
+        UUIDv6 string representing the lower bound for the given timestamp.
     """
     timestamp = int(ts * 1e9 / 100) + _UUID_EPOCH_OFFSET
     time_hi_and_mid = (timestamp >> 12) & 0xffff_ffff_ffff

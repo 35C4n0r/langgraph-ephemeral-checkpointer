@@ -44,18 +44,15 @@ class Sweeper:
         Args:
             checkpointer: The LangGraph checkpointer to sweep.
             policy: Default TTL policy applied to all threads.
-            policy_resolver: Optional per-thread policy override. Called with
-                thread_id; return a TTLPolicy to override, PolicyOverride.EXEMPT
-                to never expire, or PolicyOverride.USE_DEFAULT to use policy.
-            enable_coordination: When True, uses a PostgreSQL advisory lock so
-                that only one sweeper instance runs per sweep cycle across
-                multiple processes. Silently ignored for non-Postgres backends.
-            safe_delete: When True, re-fetches each thread's latest checkpoint
-                immediately before deletion and skips it if a newer checkpoint
-                has appeared since the sweep started. Disable only in tests or
-                single-writer setups.
+            policy_resolver: Optional per-thread policy override. Return a
+                TTLPolicy, PolicyOverride.EXEMPT, or PolicyOverride.USE_DEFAULT.
+            enable_coordination: Acquire a PostgreSQL advisory lock before each
+                sweep so only one instance runs at a time. No-op for non-Postgres
+                backends.
+            safe_delete: Re-fetch each thread's latest checkpoint immediately
+                before deletion and skip it if a newer one has appeared.
             on_before_delete: Called with (thread_id, policy, reason) before
-                each deletion. Return False to veto the deletion.
+                each deletion. Return False to veto.
             on_sweep_complete: Called with the SweepResult after each sweep.
         """
         self._checkpointer = checkpointer
@@ -81,13 +78,9 @@ class Sweeper:
     def sweep(self, *, dry_run: bool = False) -> SweepResult:
         """Run one sweep cycle synchronously.
 
-        Collects thread timestamps, evaluates each thread against its policy,
-        and deletes expired threads.
-
         Args:
-            dry_run: When True, identifies threads that would be deleted but
-                performs no deletions. Deleted thread IDs still appear in the
-                returned SweepResult for inspection.
+            dry_run: Identify expired threads without deleting them. IDs still
+                appear in the returned SweepResult.
 
         Returns:
             SweepResult with deleted thread IDs, active thread count, and
@@ -111,7 +104,16 @@ class Sweeper:
                 self._advisory_lock.release()
 
     async def asweep(self, *, dry_run: bool = False) -> SweepResult:
-        """Async variant of sweep(). Prefer this when using an async checkpointer."""
+        """Async variant of sweep().
+
+        Args:
+            dry_run: Identify expired threads without deleting them. IDs still
+                appear in the returned SweepResult.
+
+        Returns:
+            SweepResult with deleted thread IDs, active thread count, and
+            wall-clock duration.
+        """
         start = time.monotonic()
         lock_acquired = False
         if self._advisory_lock is not None:
