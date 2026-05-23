@@ -3,6 +3,12 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (e.g. v0.0.1)
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -19,7 +25,7 @@ jobs:
 
     steps:
       - name: Download release assets
-        run: gh release download ${{ github.event.release.tag_name }} --dir dist/
+        run: gh release download ${{ github.event.release.tag_name || inputs.tag }} --dir dist/
         env:
           GH_TOKEN: ${{ github.token }}
 
