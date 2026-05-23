@@ -16,6 +16,7 @@ _LOCK_KEY: int = int.from_bytes(
     signed=True,
 )
 
+
 class AdvisoryLock:
     """Thin wrapper around PostgreSQL session-level advisory locks.
 
