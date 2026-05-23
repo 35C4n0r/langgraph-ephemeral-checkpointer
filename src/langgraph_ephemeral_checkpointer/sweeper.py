@@ -323,16 +323,6 @@ class Sweeper:
         return self._policy
 
     @staticmethod
-    def _expiry_reason_code(
-            ts: ThreadTimestamps, now: float, policy: TTLPolicy
-    ) -> str | None:
-        if policy.idle_ttl_seconds is not None and ts.latest_id < unix_to_uuid6(now - policy.idle_ttl_seconds):
-            return _REASON_IDLE
-        if policy.hard_age_ttl_seconds is not None and ts.earliest_id < unix_to_uuid6(now - policy.hard_age_ttl_seconds):
-            return _REASON_AGE
-        return None
-
-    @staticmethod
     def _expiry_human(
             ts: ThreadTimestamps, now: float, policy: TTLPolicy
     ) -> str:
