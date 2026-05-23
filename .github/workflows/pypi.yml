@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Download release assets
-        run: gh release download ${{ github.event.release.tag_name || inputs.tag }} --dir dist/
+        run: gh release download ${{ github.event.release.tag_name || inputs.tag }} --dir dist/ --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ github.token }}
 
