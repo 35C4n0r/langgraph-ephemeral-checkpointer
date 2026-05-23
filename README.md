@@ -81,7 +81,7 @@ policy = TTLPolicy(
 | `idle_ttl_seconds` | `int \| None` | Expire threads with no checkpoint activity for this many seconds |
 | `hard_age_ttl_seconds` | `int \| None` | Expire threads whose first checkpoint is older than this many seconds |
 
-`TTLPolicy` is a frozen dataclass — instances are immutable.
+`TTLPolicy` is a frozen dataclass - instances are immutable.
 
 ---
 
@@ -265,7 +265,7 @@ async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
 
 When `enable_coordination=True` and the backend is PostgreSQL, the sweeper acquires a session-level advisory lock before scanning. If another instance holds the lock, the sweep is skipped and an empty `SweepResult` is returned. The lock is tied to the database connection, so a crashed instance releases it automatically.
 
-`enable_coordination=True` is a no-op for non-PostgreSQL backends — a warning is logged.
+`enable_coordination=True` is a no-op for non-PostgreSQL backends - a warning is logged.
 
 ---
 
