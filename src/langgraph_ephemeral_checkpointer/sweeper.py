@@ -262,16 +262,14 @@ class Sweeper:
         dry_ids: list[str] = []
         to_delete: list[_DeleteItem] = []
 
-        # Threshold UUIDs are computed once per distinct policy object, not once per thread.
-        _cache: dict[int, tuple[str | None, str | None]] = {}
+        _cache: dict[TTLPolicy, tuple[str | None, str | None]] = {}
 
         def _thresholds(policy: TTLPolicy) -> tuple[str | None, str | None]:
-            pid = id(policy)
-            if pid not in _cache:
+            if policy not in _cache:
                 idle = unix_to_uuid6(now - policy.idle_ttl_seconds) if policy.idle_ttl_seconds is not None else None
                 age = unix_to_uuid6(now - policy.hard_age_ttl_seconds) if policy.hard_age_ttl_seconds is not None else None
-                _cache[pid] = (idle, age)
-            return _cache[pid]
+                _cache[policy] = (idle, age)
+            return _cache[policy]
 
         for tid, ts in timestamps.items():
             policy = self._resolve_policy(tid)
