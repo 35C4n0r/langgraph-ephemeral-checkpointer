@@ -159,7 +159,10 @@ class Sweeper:
     async def _loop(self) -> None:
         assert self._stop_event is not None
         while True:
-            await self.asweep()
+            try:
+                await self.asweep()
+            except Exception:
+                logger.exception("Sweep cycle failed; will retry after interval")
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
