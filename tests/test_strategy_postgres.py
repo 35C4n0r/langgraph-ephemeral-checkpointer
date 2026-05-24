@@ -52,7 +52,7 @@ async def _arow_count(saver, table: str, thread_id: str) -> int:
 @pytest.fixture(scope="module")
 def postgres_dsn():
     with PostgresContainer("postgres:16-alpine") as pg:
-        yield pg.get_connection_url().replace("psycopg2", "psycopg")
+        yield pg.get_connection_url().replace("postgresql+psycopg2", "postgresql")
 
 
 def test_detect_returns_postgres_strategy(postgres_dsn):

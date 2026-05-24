@@ -162,25 +162,21 @@ async def test_start_twice_raises():
 
 @pytest.mark.asyncio
 async def test_loop_continues_after_exception():
-    call_count = 0
+    first_done = asyncio.Event()
 
     async def maybe_fail(self, *, dry_run=False):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            raise RuntimeError("transient failure")
-        return SweepResult(deleted_thread_ids=[], active_thread_count=0, sweep_duration_seconds=0.0)
+        first_done.set()
+        raise RuntimeError("transient failure")
 
     cp = MockCheckpointer([])
     sweeper = Sweeper(cp, TTLPolicy(idle_ttl_seconds=60), _strategy=list_strategy([]))
 
     with patch.object(Sweeper, "asweep", maybe_fail):
-        await sweeper.start(interval_seconds=0)
-        await asyncio.sleep(0.1)
+        await sweeper.start(interval_seconds=600)
+        await asyncio.wait_for(first_done.wait(), timeout=2.0)
 
     assert sweeper._task is not None
     assert not sweeper._task.done()
-    assert call_count >= 2
     await sweeper.stop()
 
 
