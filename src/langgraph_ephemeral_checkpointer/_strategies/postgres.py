@@ -32,8 +32,9 @@ class PostgresStrategy(Strategy):
         WHERE checkpoint_id > %s
         GROUP BY thread_id
     """
+    BATCH_DELETE_WRITES = "DELETE FROM checkpoint_writes WHERE thread_id = ANY(%s)"
+    BATCH_DELETE_BLOBS = "DELETE FROM checkpoint_blobs WHERE thread_id = ANY(%s)"
     BATCH_DELETE_CHECKPOINTS = "DELETE FROM checkpoints WHERE thread_id = ANY(%s)"
-    BATCH_DELETE_WRITES = "DELETE FROM writes WHERE thread_id = ANY(%s)"
 
     def __init__(self, checkpointer) -> None:
         self._checkpointer = checkpointer
@@ -60,8 +61,9 @@ class PostgresStrategy(Strategy):
         if not thread_ids:
             return
         with self._checkpointer._cursor() as cur:
-            cur.execute(self.BATCH_DELETE_CHECKPOINTS, (thread_ids,))
             cur.execute(self.BATCH_DELETE_WRITES, (thread_ids,))
+            cur.execute(self.BATCH_DELETE_BLOBS, (thread_ids,))
+            cur.execute(self.BATCH_DELETE_CHECKPOINTS, (thread_ids,))
 
 
 class AsyncPostgresStrategy(Strategy):
@@ -69,8 +71,9 @@ class AsyncPostgresStrategy(Strategy):
 
     COLLECT_ALL = PostgresStrategy.COLLECT_ALL
     COLLECT_SINCE = PostgresStrategy.COLLECT_SINCE
-    BATCH_DELETE_CHECKPOINTS = PostgresStrategy.BATCH_DELETE_CHECKPOINTS
     BATCH_DELETE_WRITES = PostgresStrategy.BATCH_DELETE_WRITES
+    BATCH_DELETE_BLOBS = PostgresStrategy.BATCH_DELETE_BLOBS
+    BATCH_DELETE_CHECKPOINTS = PostgresStrategy.BATCH_DELETE_CHECKPOINTS
 
     def __init__(self, checkpointer) -> None:
         self._checkpointer = checkpointer
@@ -95,5 +98,6 @@ class AsyncPostgresStrategy(Strategy):
         if not thread_ids:
             return
         async with self._checkpointer._cursor() as cur:
-            await cur.execute(self.BATCH_DELETE_CHECKPOINTS, (thread_ids,))
             await cur.execute(self.BATCH_DELETE_WRITES, (thread_ids,))
+            await cur.execute(self.BATCH_DELETE_BLOBS, (thread_ids,))
+            await cur.execute(self.BATCH_DELETE_CHECKPOINTS, (thread_ids,))
