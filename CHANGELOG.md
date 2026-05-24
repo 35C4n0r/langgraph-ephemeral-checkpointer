@@ -1,6 +1,26 @@
 # Changelog
 
-## 0.0.1 - 2026-05-24
+## 0.0.2
+
+### Fixed
+
+- `PostgresStrategy` / `AsyncPostgresStrategy` - renamed `writes` to `checkpoint_writes` to match the langgraph-checkpoint-postgres v3 schema; the old name raised `UndefinedTable` on every sweep, meaning no Postgres threads were ever deleted
+- `PostgresStrategy` / `AsyncPostgresStrategy` - added deletion of `checkpoint_blobs`; omitting this table left all serialised channel data behind as orphaned rows after every sweep
+- `SyncAdvisoryLock` / `AsyncAdvisoryLock` - split the single `AdvisoryLock` class into two; the original mixed sync and async cursor usage, causing `TypeError` at runtime when advisory locks were enabled on `AsyncPostgresSaver`
+- `_thresholds` cache in `_plan()` - changed cache key from `id(policy)` to the `TTLPolicy` value itself; CPython address reuse could cause a `policy_resolver` that creates fresh `TTLPolicy` instances per thread to receive thresholds computed for a different policy
+- Background loop - exceptions from `asweep()` are now caught, logged at `ERROR` level, and the loop continues; previously any transient error permanently killed the background task
+
+### Tests
+
+- Postgres integration tests now run in CI against a real Postgres container via testcontainers
+- Added table-level assertions for `checkpoint_writes` and `checkpoint_blobs` deletion on both sync and async Postgres paths
+- Added advisory lock contention test with two real `PostgresSaver` connections
+- Added incremental cursor collection tests for Postgres
+- Added `writes` table deletion assertions for SQLite sync and async paths
+- Added cross-contamination test verifying surviving threads are not affected by a sweep
+- Added policy resolver tests that construct fresh `TTLPolicy` instances per call, covering the id()-cache collision path
+
+## 0.0.1
 
 Initial release.
 
