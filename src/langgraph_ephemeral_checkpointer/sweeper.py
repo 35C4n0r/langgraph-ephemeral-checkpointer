@@ -5,7 +5,7 @@ import time
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from . import _strategies
-from ._coordination import AdvisoryLock, get_advisory_lock
+from ._coordination import AsyncAdvisoryLock, SyncAdvisoryLock, get_advisory_lock
 from ._strategies import Strategy, ThreadTimestamps
 from ._uuid6 import unix_to_uuid6, uuid6_to_unix
 from .policy import TTLPolicy
@@ -62,7 +62,7 @@ class Sweeper:
         self._on_before_delete = on_before_delete
         self._on_sweep_complete = on_sweep_complete
         self._strategy: Strategy = _strategies.detect(checkpointer) if _strategy is None else _strategy
-        self._advisory_lock: AdvisoryLock | None = get_advisory_lock(checkpointer, enable_coordination)
+        self._advisory_lock: SyncAdvisoryLock | AsyncAdvisoryLock | None = get_advisory_lock(checkpointer, enable_coordination)
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
         self._interval_seconds: int = 300
