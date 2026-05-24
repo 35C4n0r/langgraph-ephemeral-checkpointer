@@ -12,43 +12,70 @@ _LOCK_KEY: int = int.from_bytes(
     signed=True,
 )
 
+_ACQUIRE_SQL = "SELECT pg_try_advisory_lock(%s) AS acquired"
+_RELEASE_SQL = "SELECT pg_advisory_unlock(%s)"
 
-class AdvisoryLock:
-    """PostgreSQL session-level advisory lock. Released automatically when the connection closes."""
+
+class SyncAdvisoryLock:
+    """Advisory lock for PostgresSaver (sync). Uses a sync cursor."""
 
     def __init__(self, checkpointer) -> None:
         self._checkpointer = checkpointer
 
     def try_acquire(self) -> bool:
         with self._checkpointer._cursor() as cur:
-            cur.execute("SELECT pg_try_advisory_lock(%s) AS acquired", (_LOCK_KEY,))
+            cur.execute(_ACQUIRE_SQL, (_LOCK_KEY,))
             return bool(cur.fetchone()["acquired"])
 
     def release(self) -> None:
         with self._checkpointer._cursor() as cur:
-            cur.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_KEY,))
+            cur.execute(_RELEASE_SQL, (_LOCK_KEY,))
+
+    async def atry_acquire(self) -> bool:
+        return self.try_acquire()
+
+    async def arelease(self) -> None:
+        self.release()
+
+
+class AsyncAdvisoryLock:
+    """Advisory lock for AsyncPostgresSaver (async). Uses an async cursor."""
+
+    def __init__(self, checkpointer) -> None:
+        self._checkpointer = checkpointer
+
+    def try_acquire(self) -> bool:
+        raise NotImplementedError("Use atry_acquire() with AsyncPostgresSaver")
+
+    def release(self) -> None:
+        raise NotImplementedError("Use arelease() with AsyncPostgresSaver")
 
     async def atry_acquire(self) -> bool:
         async with self._checkpointer._cursor() as cur:
-            await cur.execute(
-                "SELECT pg_try_advisory_lock(%s) AS acquired", (_LOCK_KEY,)
-            )
+            await cur.execute(_ACQUIRE_SQL, (_LOCK_KEY,))
             row = await cur.fetchone()
             return bool(row["acquired"])
 
     async def arelease(self) -> None:
         async with self._checkpointer._cursor() as cur:
-            await cur.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_KEY,))
+            await cur.execute(_RELEASE_SQL, (_LOCK_KEY,))
 
-def get_advisory_lock(checkpointer, enable: bool) -> AdvisoryLock | None:
-    """Return an AdvisoryLock for the given checkpointer, or None.
+
+# Union type for type annotations in sweeper.py
+AdvisoryLock = SyncAdvisoryLock | AsyncAdvisoryLock
+
+
+def get_advisory_lock(checkpointer, enable: bool) -> SyncAdvisoryLock | AsyncAdvisoryLock | None:
+    """Return an advisory lock for the given checkpointer, or None.
 
     Args:
         checkpointer: The LangGraph checkpointer to lock against.
         enable: If False, always returns None without checking the backend.
 
     Returns:
-        AdvisoryLock if the backend is PostgreSQL and enable is True, else None.
+        SyncAdvisoryLock for PostgresSaver, AsyncAdvisoryLock for
+        AsyncPostgresSaver, or None if the backend is unsupported or
+        enable is False.
     """
     if not enable:
         return None
@@ -56,14 +83,14 @@ def get_advisory_lock(checkpointer, enable: bool) -> AdvisoryLock | None:
     try:
         from langgraph.checkpoint.postgres import PostgresSaver
         if isinstance(checkpointer, PostgresSaver):
-            return AdvisoryLock(checkpointer)
+            return SyncAdvisoryLock(checkpointer)
     except ImportError:
         pass
 
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
         if isinstance(checkpointer, AsyncPostgresSaver):
-            return AdvisoryLock(checkpointer)
+            return AsyncAdvisoryLock(checkpointer)
     except ImportError:
         pass
 
