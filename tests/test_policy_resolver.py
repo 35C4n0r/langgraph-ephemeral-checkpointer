@@ -128,3 +128,53 @@ async def test_async_sweep_respects_resolver():
 
     assert "exempt" not in result.deleted_thread_ids
     assert "expired" in result.deleted_thread_ids
+
+
+def test_fresh_policy_objects_per_thread_applied_correctly():
+    tuples = [
+        make_checkpoint_tuple("strict", None, iso_ts(-70)),
+        make_checkpoint_tuple("lenient", None, iso_ts(-70)),
+    ]
+    cp = MockCP(tuples)
+
+    def resolver(tid):
+        if tid == "strict":
+            return TTLPolicy(idle_ttl_seconds=60)
+        return TTLPolicy(idle_ttl_seconds=3600)
+
+    sweeper = Sweeper(
+        cp,
+        TTLPolicy(idle_ttl_seconds=9999),
+        policy_resolver=resolver,
+        safe_delete=False,
+        _strategy=list_strategy(tuples),
+    )
+    result = sweeper.sweep()
+
+    assert "strict" in result.deleted_thread_ids
+    assert "lenient" not in result.deleted_thread_ids
+
+
+def test_many_threads_fresh_policies_all_evaluated_correctly():
+    thread_ids = [f"t{i}" for i in range(50)]
+    tuples = [make_checkpoint_tuple(tid, None, iso_ts(-70)) for tid in thread_ids]
+    cp = MockCP(tuples)
+
+    strict_ids = {tid for tid in thread_ids if int(tid[1:]) % 2 == 0}
+
+    def resolver(tid):
+        if tid in strict_ids:
+            return TTLPolicy(idle_ttl_seconds=60)
+        return TTLPolicy(idle_ttl_seconds=3600)
+
+    sweeper = Sweeper(
+        cp,
+        TTLPolicy(idle_ttl_seconds=9999),
+        policy_resolver=resolver,
+        safe_delete=False,
+        _strategy=list_strategy(tuples),
+    )
+    result = sweeper.sweep()
+
+    deleted = set(result.deleted_thread_ids)
+    assert deleted == strict_ids

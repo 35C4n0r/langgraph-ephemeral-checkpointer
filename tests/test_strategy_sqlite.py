@@ -112,3 +112,66 @@ async def test_async_sweep_deletes_expired():
         time.sleep(1.1)
         result = await sweeper.asweep()
         assert "t1" in result.deleted_thread_ids
+
+
+def test_sqlite_batch_delete_clears_writes_table():
+    with SqliteSaver.from_conn_string(":memory:") as saver:
+        graph = _build_graph(saver)
+        graph.invoke({"x": 0}, {"configurable": {"thread_id": "t_writes"}})
+        graph.invoke({"x": 1}, {"configurable": {"thread_id": "t_writes"}})
+
+        sweeper = Sweeper(saver, TTLPolicy(idle_ttl_seconds=1))
+        time.sleep(1.1)
+        result = sweeper.sweep()
+
+        assert "t_writes" in result.deleted_thread_ids
+        assert saver.conn.execute(
+            "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", ("t_writes",)
+        ).fetchone()[0] == 0
+        assert saver.conn.execute(
+            "SELECT COUNT(*) FROM writes WHERE thread_id = ?", ("t_writes",)
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_async_sqlite_batch_delete_clears_writes_table():
+    pytest.importorskip("aiosqlite")
+
+    async with AsyncSqliteSaver.from_conn_string(":memory:") as saver:
+        graph = _build_graph(saver)
+        await graph.ainvoke({"x": 0}, {"configurable": {"thread_id": "t_writes_async"}})
+
+        sweeper = Sweeper(saver, TTLPolicy(idle_ttl_seconds=1))
+        time.sleep(1.1)
+        result = await sweeper.asweep()
+
+        assert "t_writes_async" in result.deleted_thread_ids
+
+        async with saver.conn.execute(
+            "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", ("t_writes_async",)
+        ) as cur:
+            assert (await cur.fetchone())[0] == 0
+
+        async with saver.conn.execute(
+            "SELECT COUNT(*) FROM writes WHERE thread_id = ?", ("t_writes_async",)
+        ) as cur:
+            assert (await cur.fetchone())[0] == 0
+
+
+def test_sqlite_sweep_no_cross_contamination():
+    with SqliteSaver.from_conn_string(":memory:") as saver:
+        graph = _build_graph(saver)
+        graph.invoke({"x": 0}, {"configurable": {"thread_id": "old"}})
+        graph.invoke({"x": 0}, {"configurable": {"thread_id": "new"}})
+
+        time.sleep(1.1)
+        graph.invoke({"x": 1}, {"configurable": {"thread_id": "new"}})
+
+        sweeper = Sweeper(saver, TTLPolicy(idle_ttl_seconds=1))
+        result = sweeper.sweep()
+
+        assert "old" in result.deleted_thread_ids
+        assert "new" not in result.deleted_thread_ids
+        assert saver.conn.execute(
+            "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", ("new",)
+        ).fetchone()[0] > 0

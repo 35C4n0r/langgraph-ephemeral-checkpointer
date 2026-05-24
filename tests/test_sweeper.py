@@ -161,22 +161,42 @@ async def test_start_twice_raises():
         await sweeper.stop()
 
 @pytest.mark.asyncio
-async def test_loop_fails_on_exception():
-    """An exception in asweep() fails the background task."""
+async def test_loop_continues_after_exception():
+    first_done = asyncio.Event()
+
+    async def maybe_fail(self, *, dry_run=False):
+        first_done.set()
+        raise RuntimeError("transient failure")
+
+    cp = MockCheckpointer([])
+    sweeper = Sweeper(cp, TTLPolicy(idle_ttl_seconds=60), _strategy=list_strategy([]))
+
+    with patch.object(Sweeper, "asweep", maybe_fail):
+        await sweeper.start(interval_seconds=600)
+        await asyncio.wait_for(first_done.wait(), timeout=2.0)
+
+    assert sweeper._task is not None
+    assert not sweeper._task.done()
+    await sweeper.stop()
+
+
+@pytest.mark.asyncio
+async def test_loop_logs_exception(caplog):
+    import logging
+
     async def failing_asweep(self, *, dry_run=False):
-        raise RuntimeError("sweep failed")
+        raise RuntimeError("database timeout")
 
     cp = MockCheckpointer([])
     sweeper = Sweeper(cp, TTLPolicy(idle_ttl_seconds=60), _strategy=list_strategy([]))
 
     with patch.object(Sweeper, "asweep", failing_asweep):
-        await sweeper.start(interval_seconds=600)
-        await asyncio.sleep(0.05)
+        with caplog.at_level(logging.ERROR, logger="langgraph_ephemeral_checkpointer.sweeper"):
+            await sweeper.start(interval_seconds=600)
+            await asyncio.sleep(0.05)
+            await sweeper.stop()
 
-    assert sweeper._task is not None
-    assert sweeper._task.done()
-    with pytest.raises(RuntimeError, match="sweep failed"):
-        sweeper._task.result()
+    assert any("Sweep cycle failed" in r.message for r in caplog.records)
 
 @pytest.mark.asyncio
 async def test_stop_before_start_is_noop():
