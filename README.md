@@ -1,6 +1,7 @@
 # langgraph-ephemeral-checkpointer
 
-TTL-based thread retention for [LangGraph](https://github.com/langchain-ai/langgraph) checkpointers. Expire and delete old conversation threads based on idle time or absolute age.
+TTL-based thread retention for [LangGraph](https://github.com/langchain-ai/langgraph) checkpointers. Expire and delete
+old conversation threads based on idle time or absolute age.
 
 ---
 
@@ -10,15 +11,16 @@ TTL-based thread retention for [LangGraph](https://github.com/langchain-ai/langg
 - [Quick Start](#quick-start)
 - [TTLPolicy](#ttlpolicy)
 - [Sweeper](#sweeper)
-  - [Running a sweep](#running-a-sweep)
-  - [Background loop](#background-loop)
-  - [Dry run](#dry-run)
-  - [SweepResult](#sweepresult)
+    - [Running a sweep](#running-a-sweep)
+    - [Background loop](#background-loop)
+    - [Dry run](#dry-run)
+    - [SweepResult](#sweepresult)
 - [Per-thread policy overrides](#per-thread-policy-overrides)
 - [Callbacks](#callbacks)
 - [Safe delete](#safe-delete)
 - [Multi-instance coordination](#multi-instance-coordination)
 - [Backends](#backends)
+- [Benchmarks](#benchmarks)
 - [API reference](#api-reference)
 
 ---
@@ -76,9 +78,9 @@ policy = TTLPolicy(
 )
 ```
 
-| Parameter | Type | Description |
-|---|---|---|
-| `idle_ttl_seconds` | `int \| None` | Expire threads with no checkpoint activity for this many seconds |
+| Parameter              | Type          | Description                                                           |
+|------------------------|---------------|-----------------------------------------------------------------------|
+| `idle_ttl_seconds`     | `int \| None` | Expire threads with no checkpoint activity for this many seconds      |
 | `hard_age_ttl_seconds` | `int \| None` | Expire threads whose first checkpoint is older than this many seconds |
 
 `TTLPolicy` is a frozen dataclass - instances are immutable.
@@ -91,14 +93,14 @@ policy = TTLPolicy(
 
 ```python
 Sweeper(
-    checkpointer,           # any LangGraph BaseCheckpointSaver
-    policy,                 # TTLPolicy
+    checkpointer,  # any LangGraph BaseCheckpointSaver
+    policy,  # TTLPolicy
     *,
-    policy_resolver=None,   # per-thread overrides (see below)
+    policy_resolver=None,  # per-thread overrides (see below)
     enable_coordination=False,  # PostgreSQL advisory locks
-    safe_delete=True,       # re-verify timestamps before deleting
+    safe_delete=True,  # re-verify timestamps before deleting
     on_before_delete=None,  # callback before each deletion
-    on_sweep_complete=None, # callback after each sweep
+    on_sweep_complete=None,  # callback after each sweep
 )
 ```
 
@@ -123,6 +125,7 @@ import asyncio
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph_ephemeral_checkpointer import TTLPolicy, Sweeper
 
+
 async def main():
     async with AsyncSqliteSaver.from_conn_string("threads.db") as checkpointer:
         policy = TTLPolicy(idle_ttl_seconds=3600)
@@ -133,6 +136,7 @@ async def main():
         # ... your application runs here ...
 
         await sweeper.stop()
+
 
 asyncio.run(main())
 ```
@@ -155,8 +159,8 @@ Every sweep returns a `SweepResult`:
 ```python
 result = sweeper.sweep()
 
-result.deleted_thread_ids      # list[str]: IDs of deleted threads
-result.active_thread_count     # int: threads still alive after this sweep
+result.deleted_thread_ids  # list[str]: IDs of deleted threads
+result.active_thread_count  # int: threads still alive after this sweep
 result.sweep_duration_seconds  # float: wall-clock time for the sweep
 ```
 
@@ -164,7 +168,8 @@ result.sweep_duration_seconds  # float: wall-clock time for the sweep
 
 ## Per-thread policy overrides
 
-Supply a `policy_resolver` to apply different rules to individual threads. The resolver receives a `thread_id` and returns either a custom `TTLPolicy` or a `PolicyOverride`.
+Supply a `policy_resolver` to apply different rules to individual threads. The resolver receives a `thread_id` and
+returns either a custom `TTLPolicy` or a `PolicyOverride`.
 
 ```python
 from langgraph_ephemeral_checkpointer import TTLPolicy, Sweeper
@@ -174,6 +179,7 @@ default_policy = TTLPolicy(idle_ttl_seconds=3600)
 
 vip_policy = TTLPolicy(idle_ttl_seconds=604800)  # VIP threads last 7 days
 
+
 def resolver(thread_id: str):
     if thread_id.startswith("vip:"):
         return vip_policy
@@ -181,14 +187,15 @@ def resolver(thread_id: str):
         return PolicyOverride.EXEMPT  # never expire
     return PolicyOverride.USE_DEFAULT
 
+
 sweeper = Sweeper(checkpointer, default_policy, policy_resolver=resolver)
 ```
 
-| Return value | Behaviour |
-|---|---|
-| `TTLPolicy` | Use this policy for the thread instead of the global one |
-| `PolicyOverride.USE_DEFAULT` | Apply the sweeper's global policy |
-| `PolicyOverride.EXEMPT` | Never expire this thread |
+| Return value                 | Behaviour                                                |
+|------------------------------|----------------------------------------------------------|
+| `TTLPolicy`                  | Use this policy for the thread instead of the global one |
+| `PolicyOverride.USE_DEFAULT` | Apply the sweeper's global policy                        |
+| `PolicyOverride.EXEMPT`      | Never expire this thread                                 |
 
 If the resolver raises, the sweep aborts. It is called once per thread per sweep.
 
@@ -205,6 +212,7 @@ def on_before_delete(thread_id: str, policy: TTLPolicy, reason: str) -> bool:
     print(f"Deleting {thread_id!r} (reason: {reason})")
     return True
 
+
 sweeper = Sweeper(checkpointer, policy, on_before_delete=on_before_delete)
 ```
 
@@ -219,6 +227,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def on_sweep_complete(result: SweepResult) -> None:
     logger.info(
         "sweep complete",
@@ -229,6 +238,7 @@ def on_sweep_complete(result: SweepResult) -> None:
         },
     )
 
+
 sweeper = Sweeper(checkpointer, policy, on_sweep_complete=on_sweep_complete)
 ```
 
@@ -238,7 +248,8 @@ Exceptions raised inside either callback propagate and abort the sweep.
 
 ## Safe delete
 
-By default (`safe_delete=True`), the sweeper re-reads each thread's latest checkpoint immediately before deleting and skips it if a newer checkpoint has appeared since the scan started.
+By default (`safe_delete=True`), the sweeper re-reads each thread's latest checkpoint immediately before deleting and
+skips it if a newer checkpoint has appeared since the scan started.
 
 ```python
 sweeper = Sweeper(checkpointer, policy, safe_delete=False)
@@ -248,7 +259,8 @@ sweeper = Sweeper(checkpointer, policy, safe_delete=False)
 
 ## Multi-instance coordination
 
-If you run multiple application instances sharing a single PostgreSQL checkpointer, you can enable advisory locks so only one instance sweeps at a time:
+If you run multiple application instances sharing a single PostgreSQL checkpointer, you can enable advisory locks so
+only one instance sweeps at a time:
 
 ```python
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -263,7 +275,9 @@ async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
     result = await sweeper.asweep()
 ```
 
-When `enable_coordination=True` and the backend is PostgreSQL, the sweeper acquires a session-level advisory lock before scanning. If another instance holds the lock, the sweep is skipped and an empty `SweepResult` is returned. The lock is tied to the database connection, so a crashed instance releases it automatically.
+When `enable_coordination=True` and the backend is PostgreSQL, the sweeper acquires a session-level advisory lock before
+scanning. If another instance holds the lock, the sweep is skipped and an empty `SweepResult` is returned. The lock is
+tied to the database connection, so a crashed instance releases it automatically.
 
 `enable_coordination=True` is a no-op for non-PostgreSQL backends - a warning is logged.
 
@@ -273,13 +287,65 @@ When `enable_coordination=True` and the backend is PostgreSQL, the sweeper acqui
 
 The sweeper picks the most efficient strategy for your checkpointer automatically.
 
-| Checkpointer | Strategy | Notes |
-|---|---|---|
-| `InMemorySaver` | `MemoryStrategy` | Reads storage dict directly; extracts timestamps from UUIDv6 checkpoint IDs |
-| `SqliteSaver` | `SqliteStrategy` | Single `GROUP BY` query for all threads |
-| `AsyncSqliteSaver` | `AsyncSqliteStrategy` | Async variant of the above |
-| `PostgresSaver` | `PostgresStrategy` | `GROUP BY` query; advisory lock support |
-| `AsyncPostgresSaver` | `AsyncPostgresStrategy` | Async variant; advisory lock support |
+| Checkpointer         | Strategy                | Notes                                                                       |
+|----------------------|-------------------------|-----------------------------------------------------------------------------|
+| `InMemorySaver`      | `MemoryStrategy`        | Reads storage dict directly; extracts timestamps from UUIDv6 checkpoint IDs |
+| `SqliteSaver`        | `SqliteStrategy`        | Single `GROUP BY` query for all threads                                     |
+| `AsyncSqliteSaver`   | `AsyncSqliteStrategy`   | Async variant of the above                                                  |
+| `PostgresSaver`      | `PostgresStrategy`      | `GROUP BY` query; advisory lock support                                     |
+| `AsyncPostgresSaver` | `AsyncPostgresStrategy` | Async variant; advisory lock support                                        |
+
+---
+
+## Benchmarks
+
+Measured with [`pytest-benchmark`](https://pytest-benchmark.readthedocs.io/) on Python 3.13, Apple M4 Pro. Each cell is
+the **mean** wall-clock time. SQLite and Memory backends use in-memory storage; Postgres benchmarks require a running
+server (skipped otherwise).
+
+### Steady-state performance (no expired threads)
+
+| Operation   | Backend     | 10 threads | 100 threads | 1 000 threads |
+|-------------|-------------|-----------:|------------:|--------------:|
+| `collect()` | Memory      |     2.7 µs |       27 µs |        315 µs |
+|             | SQLite      |      15 µs |      134 µs |      1 399 µs |
+|             | AsyncSQLite |     127 µs |      252 µs |      1 500 µs |
+| `sweep()`   | Memory      |     5.4 µs |       37 µs |        348 µs |
+|             | SQLite      |     8.0 µs |       41 µs |        364 µs |
+|             | AsyncSQLite |     126 µs |      162 µs |        490 µs |
+
+### Sweep — all threads expired (ms)
+
+| Mode                | Backend     | 10 threads | 100 threads | 1 000 threads |
+|---------------------|-------------|-----------:|------------:|--------------:|
+| `safe_delete=True`  | Memory      |       0.20 |        1.74 |          66.4 |
+|                     | SQLite      |       0.43 |        2.56 |          20.9 |
+|                     | AsyncSQLite |       3.09 |        21.8 |         185.6 |
+| `safe_delete=False` | Memory      |       0.13 |        1.32 |          59.4 |
+|                     | SQLite      |       0.33 |        1.22 |          10.7 |
+|                     | AsyncSQLite |       0.68 |        1.77 |          12.3 |
+
+> **`dry_run=True`**: 2–5 ms at 1 000 threads regardless of backend (identifies expired threads without deleting).
+
+<details>
+<summary>Running benchmarks locally</summary>
+
+```bash
+# Install benchmark dependencies
+uv pip install -e ".[benchmark]"
+
+# Run (non-Postgres)
+uv run pytest benchmarks/ -v
+
+# Save JSON output for comparison
+uv run pytest benchmarks/ -v --benchmark-json=benchmarks/results.json
+
+# Include Postgres benchmarks (requires a running server)
+BENCHMARK_POSTGRES_DSN="postgresql://user:pass@localhost:5432/bench" \
+  uv run pytest benchmarks/ -v
+```
+
+</details>
 
 ---
 
@@ -299,20 +365,23 @@ class TTLPolicy:
 ```python
 class Sweeper:
     def __init__(
-        self,
-        checkpointer: BaseCheckpointSaver,
-        policy: TTLPolicy,
-        *,
-        policy_resolver: PolicyResolver | None = None,
-        enable_coordination: bool = False,
-        safe_delete: bool = True,
-        on_before_delete: OnBeforeDelete | None = None,
-        on_sweep_complete: OnSweepComplete | None = None,
+            self,
+            checkpointer: BaseCheckpointSaver,
+            policy: TTLPolicy,
+            *,
+            policy_resolver: PolicyResolver | None = None,
+            enable_coordination: bool = False,
+            safe_delete: bool = True,
+            on_before_delete: OnBeforeDelete | None = None,
+            on_sweep_complete: OnSweepComplete | None = None,
     ) -> None: ...
 
     def sweep(self, *, dry_run: bool = False) -> SweepResult: ...
+
     async def asweep(self, *, dry_run: bool = False) -> SweepResult: ...
+
     async def start(self, interval_seconds: int = 300) -> None: ...
+
     async def stop(self) -> None: ...
 ```
 
@@ -331,13 +400,13 @@ class SweepResult:
 ```python
 class PolicyOverride(enum.Enum):
     USE_DEFAULT = "use_default"
-    EXEMPT      = "exempt"
+    EXEMPT = "exempt"
 ```
 
 ### Callable types
 
 ```python
-PolicyResolver  = Callable[[str], TTLPolicy | PolicyOverride]
-OnBeforeDelete  = Callable[[str, TTLPolicy, str], bool]
+PolicyResolver = Callable[[str], TTLPolicy | PolicyOverride]
+OnBeforeDelete = Callable[[str, TTLPolicy, str], bool]
 OnSweepComplete = Callable[[SweepResult], None]
 ```

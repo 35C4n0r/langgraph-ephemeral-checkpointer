@@ -5,6 +5,5 @@ dist/
 *.egg-info/
 .DS_Store
 .idea/
-benchmarks/
 docker-compose.yml
 uv.lock
